@@ -1,0 +1,6 @@
+occurrenceID	scientificName	eventDate	decimalLatitude	decimalLongitude	countryCode	basisOfRecord
+occ1	Quercus ilex	2020-05-12	39.47	-0.37	ES	HumanObservation
+occ2	Pinus halepensis	2021-03-02	38.9	-0.5	ES	HumanObservation
+occ3	Olea europaea	2019-11-30	37.4	-4.7	ES	PreservedSpecimen
+occ4	Cistus albidus	2022-06-15	40.1	-1.2	ES	HumanObservation
+occ5	Rosmarinus officinalis	2023-01-20	41.2	2.1	ES	HumanObservation

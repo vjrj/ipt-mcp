@@ -1,0 +1,4 @@
+taxonID	scientificName	taxonRank	kingdom	family
+t1	Quercus ilex L.	species	Plantae	Fagaceae
+t2	Pinus halepensis Mill.	species	Plantae	Pinaceae
+t3	Olea europaea L.	species	Plantae	Oleaceae

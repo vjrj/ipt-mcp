@@ -1,0 +1,4 @@
+occurrenceID	scientificName	month
+occ1	Quercus	ilex	5
+occ2	Pinus	13
+occ3	Olea

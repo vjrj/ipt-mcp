@@ -1,0 +1,55 @@
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: "0 3 * * *" # nightly: catch drift against the newest IPT release
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --audit-level=high
+
+  integration:
+    # Real IPT (official release WAR on the official Tomcat image), TEST mode, disposable data dir.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ipt: ["3.3.0", "latest"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Resolve IPT version
+        id: v
+        run: |
+          V="${{ matrix.ipt }}"
+          if [ "$V" = latest ]; then
+            V=$(curl -fsSL https://repository.gbif.org/repository/releases/org/gbif/ipt/maven-metadata.xml | sed -n 's|.*<release>\(.*\)</release>.*|\1|p')
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - run: harness/fetch-war.sh "${{ steps.v.outputs.version }}" "$RUNNER_TEMP/ipt.war"
+      - run: IPT_WAR="$RUNNER_TEMP/ipt.war" harness/start-ipt.sh
+      - run: harness/setup-ipt.sh
+      - run: npm run test:integration
+        env:
+          IPT_TEST_URL: http://localhost:18080/ipt
+      - if: failure()
+        run: docker logs ipt-test | tail -200

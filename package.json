@@ -1,0 +1,30 @@
+{
+  "name": "ipt-mcp",
+  "version": "0.1.0",
+  "description": "POC: MCP server to operate and validate data for a GBIF IPT",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "ipt-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:integration": "node --import tsx --test --test-concurrency=1 test/integration/*.test.ts",
+    "start": "node --import tsx src/server.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "cheerio": "^1.2.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
