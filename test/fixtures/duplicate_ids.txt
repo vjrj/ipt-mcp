@@ -1,0 +1,4 @@
+occurrenceID	scientificName	eventDate	basisOfRecord
+dup1	Quercus ilex	2020-05-12	HumanObservation
+dup1	Pinus halepensis	2021-03-02	HumanObservation
+dup2	Olea europaea	2019-11-30	HumanObservation

@@ -19,7 +19,10 @@ export interface MappingInfo {
 
 export interface ResourceStatus {
   shortname: string;
-  visibility: string;
+  /** Normalised visibility; "unknown" when the page text is not recognised (non-English IPT without the locale pin). */
+  visibility: "public" | "private" | "registered" | "deleted" | "unknown";
+  /** The IPT's own wording, for humans. */
+  visibilityText: string;
   sources: SourceInfo[];
   mappings: MappingInfo[];
   /** Text of the metadata block, includes the IPT's own "Valid"/"Invalid" verdict. */
@@ -82,10 +85,13 @@ export function parseOverview(shortname: string, html: string): ResourceStatus {
   const lastPublishedVersion = versionOf("version-current");
   const nextVersion = versionOf("version-next");
   const badge = txt($("#visibility").find(".badge").first().text()) || txt($(".badge").first().text());
+  const visibilityText = block("visibility");
+  const visibility = normaliseVisibility(badge, visibilityText);
 
   return {
     shortname,
-    visibility: (badge || block("visibility")).toLowerCase(),
+    visibility,
+    visibilityText,
     sources,
     mappings,
     metadata: block("metadata"),
@@ -96,6 +102,16 @@ export function parseOverview(shortname: string, html: string): ResourceStatus {
     visibilityChangePending: /visibility has been changed|has been changed to/i.test(block("visibility")),
     publishing: false,
   };
+}
+
+function normaliseVisibility(badge: string, text: string): ResourceStatus["visibility"] {
+  const b = badge.toLowerCase();
+  if (b === "public" || b === "private" || b === "registered") return b;
+  if (/deleted/i.test(b) || /deleted but public/i.test(text)) return "deleted";
+  // "This resource is public …" / "… is private to managers" / "… registered …" (a pending change mentions both states)
+  const current = text.match(/(?:resource|recurso) (?:is|es)(?: currently)? (public|private|registered)/i)?.[1] ?? text.match(/currently (public|private|registered)/i)?.[1];
+  if (current) return current.toLowerCase() as ResourceStatus["visibility"];
+  return "unknown";
 }
 
 export interface PublicationReport {
@@ -157,6 +173,9 @@ export function parseMappingPage(html: string): MappingPage {
     const selected = s.find("option[selected]").attr("value");
     const defParam = `fields[${i}].defaultValue`;
     const defInput = $(`[name='${defParam.replace(/([[\]])/g, "\\$1")}']`).first();
+    // Vocabulary terms (e.g. basisOfRecord) offer their default as a <select>: use the chosen option, not the option texts.
+    const isSelect = (defInput.get(0) as { tagName?: string } | undefined)?.tagName?.toLowerCase() === "select";
+    const defaultValue = isSelect ? defInput.find("option[selected]").attr("value") ?? "" : defInput.attr("value") ?? defInput.text() ?? "";
     fields.push({
       qualName: qual,
       ...(uri ? { uri: uri[1] ?? uri[2] } : {}),
@@ -164,7 +183,7 @@ export function parseMappingPage(html: string): MappingPage {
       indexParam: name,
       defaultParam: defParam,
       ...(selected !== undefined && selected !== "" ? { index: Number(selected) } : {}),
-      defaultValue: defInput.attr("value") ?? defInput.text() ?? "",
+      defaultValue,
     });
   }
   return { columns, ...(idSel !== undefined && idSel !== "" ? { idColumn: Number(idSel) } : {}), fields };

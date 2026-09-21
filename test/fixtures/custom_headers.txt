@@ -1,0 +1,4 @@
+record_id	sp	obs_date	lat	lon	country	basis
+r1	Quercus ilex	2020-05-12	39.47	-0.37	ES	HumanObservation
+r2	Pinus halepensis	2021-03-02	38.9	-0.5	ES	HumanObservation
+r3	Olea europaea	2019-11-30	37.4	-4.7	ES	HumanObservation

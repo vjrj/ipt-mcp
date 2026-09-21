@@ -203,6 +203,23 @@ export class IptClient {
     });
   }
 
+  /** First bytes of a (possibly huge) download, without reading the rest. */
+  async getPrefix(path: string, maxBytes: number): Promise<Buffer> {
+    const res = await this.raw(path, { redirect: "manual" });
+    if (!res.ok || !res.body) throw new Error(`IPT GET ${path} -> HTTP ${res.status}`);
+    const chunks: Buffer[] = [];
+    let n = 0;
+    const reader = res.body.getReader();
+    while (n < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(Buffer.from(value));
+      n += value.length;
+    }
+    await reader.cancel().catch(() => undefined);
+    return Buffer.concat(chunks).subarray(0, maxBytes);
+  }
+
   private async toResult(res: Response, path: string): Promise<PageResult> {
     const location = res.headers.get("location");
     const html = res.status >= 300 && res.status < 400 ? "" : await res.text();
@@ -261,12 +278,13 @@ export class IptClient {
 }
 
 /** Extract the few EML fields that matter for a quick look, without an XML dependency. */
-export function summarizeEml(xml: string): { title?: string; abstract?: string; license?: string; contacts: number } {
+export function summarizeEml(xml: string): { title?: string; abstract?: string; license?: string; contacts: number; keywords: string[] } {
   const pick = (re: RegExp) => xml.match(re)?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   return {
     title: pick(/<dataset>[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/),
     abstract: pick(/<abstract>([\s\S]*?)<\/abstract>/),
     license: pick(/<intellectualRights>([\s\S]*?)<\/intellectualRights>/)?.slice(0, 200),
     contacts: (xml.match(/<contact>/g) ?? []).length,
+    keywords: [...xml.matchAll(/<keyword>([\s\S]*?)<\/keyword>/g)].map((m) => (m[1] ?? "").replace(/\s+/g, " ").trim()).filter(Boolean),
   };
 }

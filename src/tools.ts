@@ -1,28 +1,15 @@
 import { extname } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { Config, InstanceConfig } from "./config.ts";
 import { IptClient, summarizeEml } from "./ipt-client.ts";
 import { IptManager, type OpResult } from "./manager.ts";
 import { assertReadablePath } from "./paths.ts";
 import { Redactor } from "./redact.ts";
 import { validateTsvFile } from "./validate-tsv.ts";
 
-export interface Config {
-  url: string;
-  email?: string | undefined;
-  password?: string | undefined;
-  /** Block every tool that changes anything on the IPT. */
-  readonly: boolean;
-}
-
-export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
-  return {
-    url: env["IPT_URL"] ?? "https://ipt.gbif.org",
-    email: env["IPT_EMAIL"],
-    password: env["IPT_PASSWORD"],
-    readonly: /^(1|true|yes)$/i.test(env["IPT_READONLY"] ?? ""),
-  };
-}
+export { loadConfig } from "./config.ts";
 
 type ToolResult = { isError?: boolean; content: Array<{ type: "text"; text: string }> };
 
@@ -63,14 +50,14 @@ export class Session {
   private mgr?: IptManager;
   private login?: Promise<IptManager>;
 
-  constructor(readonly cfg: Config) {
+  constructor(readonly cfg: InstanceConfig) {
     this.publicClient = new IptClient(cfg.url);
   }
 
   manager(): Promise<IptManager> {
     if (this.mgr) return Promise.resolve(this.mgr);
     this.login ??= (async () => {
-      if (!this.cfg.email || !this.cfg.password) throw new Error("Set IPT_EMAIL and IPT_PASSWORD in the MCP server environment to use manager tools.");
+      if (!this.cfg.email || !this.cfg.password) throw new Error(`No credentials configured for the IPT instance "${this.cfg.name}": set its email and password (IPT_EMAIL/IPT_PASSWORD, or IPT_INSTANCES) to use manager tools.`);
       const client = new IptClient(this.cfg.url);
       await client.login({ email: this.cfg.email, password: this.cfg.password });
       return (this.mgr = new IptManager(client));
@@ -84,15 +71,57 @@ export class Session {
 
 const opText = (r: OpResult): ToolResult => (r.ok ? text(r) : fail(r));
 
-export function registerTools(server: McpServer, session: Session): void {
-  const { cfg } = session;
-  setSecrets([cfg.password, cfg.url.match(/\/\/[^/@:]+:([^/@]+)@/)?.[1]]);
+/** The configured IPTs; every tool call runs against one of them (`instance` argument, default: the first/default one). */
+export class Registry {
+  private sessions = new Map<string, Session>();
+  private current = new AsyncLocalStorage<Session>();
+  constructor(readonly cfg: Config) {
+    for (const i of cfg.instances) this.sessions.set(i.name, new Session(i));
+  }
+  get multi(): boolean {
+    return this.sessions.size > 1;
+  }
+  get(name?: string): Session {
+    const s = this.sessions.get(name ?? this.cfg.default);
+    if (!s) throw new Error(`unknown IPT instance "${name}"; configured: ${[...this.sessions.keys()].join(", ")}`);
+    return s;
+  }
+  /** Run fn with `name` as the instance every session accessor resolves to. */
+  run<T>(name: string | undefined, fn: () => Promise<T>): Promise<T> {
+    return this.current.run(this.get(name), fn);
+  }
+  get active(): Session {
+    return this.current.getStore() ?? this.get();
+  }
+  list() {
+    return [...this.sessions.values()].map(({ cfg: c }) => ({
+      name: c.name,
+      url: c.url.replace(/\/\/[^/@]*@/, "//"),
+      default: c.name === this.cfg.default,
+      credentials: Boolean(c.email && c.password),
+      readonly: c.readonly,
+    }));
+  }
+}
+
+export function registerTools(server: McpServer, registry: Registry): void {
+  setSecrets(registry.cfg.instances.flatMap((i) => [i.password, i.url.match(/\/\/[^/@:]+:([^/@]+)@/)?.[1]]));
+  // Tool bodies use `session`: it always points at the instance chosen for the current call.
+  const session = {
+    manager: () => registry.active.manager(),
+    get publicClient() {
+      return registry.active.publicClient;
+    },
+  };
+  const instanceArg = registry.multi
+    ? { instance: z.string().optional().describe(`IPT to use: ${registry.cfg.instances.map((i) => i.name).join(" | ")} (default ${registry.cfg.default}; see ipt_list_instances)`) }
+    : {};
 
   /** Register a tool that reads only. */
   const read = <S extends z.ZodRawShape>(name: string, description: string, shape: S, fn: (a: z.infer<z.ZodObject<S>>) => Promise<ToolResult>) =>
-    server.tool(name, description, shape, (async (a: z.infer<z.ZodObject<S>>) => {
+    server.tool(name, description, { ...shape, ...instanceArg }, (async ({ instance, ...a }: { instance?: string } & z.infer<z.ZodObject<S>>) => {
       try {
-        return await fn(a);
+        return await registry.run(instance, () => fn(a as z.infer<z.ZodObject<S>>));
       } catch (e) {
         return fail(e);
       }
@@ -100,31 +129,59 @@ export function registerTools(server: McpServer, session: Session): void {
 
   /** Register a tool that changes the IPT: blocked in read-only mode. */
   const write = <S extends z.ZodRawShape>(name: string, description: string, shape: S, fn: (a: z.infer<z.ZodObject<S>>, m: IptManager) => Promise<ToolResult>) =>
-    server.tool(name, `[writes to the IPT] ${description}`, shape, (async (a: z.infer<z.ZodObject<S>>) => {
+    server.tool(name, `[writes to the IPT] ${description}`, { ...shape, ...instanceArg }, (async ({ instance, ...a }: { instance?: string } & z.infer<z.ZodObject<S>>) => {
       try {
-        if (cfg.readonly) return fail("IPT_READONLY is set: this server is in read-only mode.");
-        return await fn(a, await session.manager());
+        return await registry.run(instance, async () => {
+          const cfg = registry.active.cfg;
+          if (cfg.readonly) return fail(`The IPT instance "${cfg.name}" is read-only: this tool is disabled for it.`);
+          return fn(a as z.infer<z.ZodObject<S>>, await session.manager());
+        });
       } catch (e) {
         return fail(e);
       }
     }) as never);
 
   const needConfirm = (what: string): ToolResult =>
-    fail({ ok: false, needsConfirmation: true, message: `${what} Call again with confirm: true to proceed.` });
+    fail({ ok: false, needsConfirmation: true, ...(registry.multi ? { instance: registry.active.cfg.name, url: registry.active.cfg.url } : {}), message: `${what} Call again with confirm: true to proceed.` });
 
   // ---------------- public, read-only ----------------
+
+  server.tool("ipt_list_instances", "The IPT servers this MCP can talk to (name, URL, default, whether it has credentials, read-only). Never shows credentials.", {}, (async () => text(registry.list())) as never);
 
   read("ipt_health", "IPT status (disk, registry/network flags). Public.", {}, async () => text(await session.publicClient.health()));
 
   read(
     "ipt_list_datasets",
-    "List published datasets of the IPT (id, title, version, records, core, DwC-A/EML URLs). Public: private resources do not appear.",
-    { query: z.string().optional().describe("Case-insensitive filter on id/title"), limit: z.number().int().min(1).max(200).default(25) },
-    async ({ query, limit }) => {
+    "List published datasets of the IPT (id, title, version, records, core, DwC-A/EML URLs). Public: private resources do not appear. `query` matches id and title; with searchMetadata it also looks in each dataset's abstract and keywords (\"datasets that mention plants\"). A records value of 0 means the IPT inventory reports no count, not necessarily an empty dataset.",
+    {
+      query: z.string().optional().describe("Case-insensitive text to look for"),
+      searchMetadata: z.boolean().default(false).describe("Also search the EML abstract and keywords (fetches each dataset's EML)"),
+      limit: z.number().int().min(1).max(200).default(25),
+    },
+    async ({ query, searchMetadata, limit }) => {
       const all = await session.publicClient.listDatasets();
       const q = query?.toLowerCase();
-      const hit = q ? all.filter((d) => d.id.toLowerCase().includes(q) || d.title.toLowerCase().includes(q)) : all;
-      return text({ total: all.length, matched: hit.length, datasets: hit.slice(0, limit) });
+      if (!q) return text({ total: all.length, matched: all.length, datasets: all.slice(0, limit) });
+      const matches: Array<(typeof all)[number] & { matchedIn: string }> = [];
+      const queue = [...all];
+      const worker = async () => {
+        for (let d = queue.shift(); d; d = queue.shift()) {
+          if (d.id.toLowerCase().includes(q) || d.title.toLowerCase().includes(q)) {
+            matches.push({ ...d, matchedIn: "id/title" });
+          } else if (searchMetadata) {
+            try {
+              const s = summarizeEml(await session.publicClient.getEml(d.id));
+              const where = s.abstract?.toLowerCase().includes(q) ? "abstract" : s.keywords.some((k) => k.toLowerCase().includes(q)) ? "keywords" : undefined;
+              if (where) matches.push({ ...d, matchedIn: where });
+            } catch {
+              /* a dataset whose EML cannot be read simply does not match */
+            }
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: 5 }, worker));
+      matches.sort((a, b) => a.id.localeCompare(b.id));
+      return text({ total: all.length, matched: matches.length, datasets: matches.slice(0, limit) });
     },
   );
 
@@ -172,14 +229,22 @@ export function registerTools(server: McpServer, session: Session): void {
 
   read(
     "ipt_get_mapping",
-    "Show a mapping: source columns, ID column and the term assignments (mapped terms and required unmapped terms unless all=true).",
+    "Show a mapping: source columns, ID column, the term assignments (mapped terms and required unmapped terms unless all=true), the source columns that are not mapped to any term, and the required terms still unmapped.",
     { shortname, rowType: z.string().describe("Extension row type URI, e.g. http://rs.tdwg.org/dwc/terms/Occurrence"), mid: z.number().int().default(0), all: z.boolean().default(false) },
     async ({ shortname, rowType, mid, all }) => {
       const page = await (await session.manager()).getMapping(shortname, rowType, mid);
       const fields = page.fields
         .filter((f) => all || f.index !== undefined || f.defaultValue !== "" || f.required)
         .map((f) => ({ term: f.qualName, required: f.required, column: f.index !== undefined ? page.columns[f.index] : undefined, default: f.defaultValue || undefined }));
-      return text({ columns: page.columns, idColumn: page.idColumn !== undefined ? page.columns[page.idColumn] ?? page.idColumn : undefined, fields });
+      const used = new Set<number>(page.fields.flatMap((f) => (f.index !== undefined ? [f.index] : [])));
+      if (page.idColumn !== undefined) used.add(page.idColumn);
+      return text({
+        columns: page.columns,
+        idColumn: page.idColumn !== undefined ? page.columns[page.idColumn] ?? page.idColumn : undefined,
+        unmappedColumns: page.columns.filter((_, i) => !used.has(i)),
+        unmappedRequiredTerms: page.fields.filter((f) => f.required && f.index === undefined && f.defaultValue === "").map((f) => f.qualName),
+        fields,
+      });
     },
   );
 
@@ -284,7 +349,7 @@ export function registerTools(server: McpServer, session: Session): void {
     "ipt_set_metadata_fields",
     "Save any metadata section by raw field names (get them with ipt_get_metadata_form). Repeatable items use indexed names such as eml.citation.citation or eml.physicalData[0].name.",
     { shortname, section: z.string(), fields: z.record(z.string()) },
-    async ({ shortname, section, fields }, m) => opText(await m.saveMetadataSection(shortname, section, fields)),
+    async ({ shortname, section, fields }, m) => opText(await m.saveMetadataSection(shortname, section, fields, undefined, true)),
   );
 
   write(

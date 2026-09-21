@@ -1,9 +1,62 @@
 # ipt-mcp
 
-MCP server that lets an AI assistant manage a [GBIF IPT](https://www.gbif.org/ipt) **from resource creation up to
-publication**, validating data before it reaches the IPT.
+> **Experimental proof of concept.** It shows what could be done with a [GBIF IPT](https://www.gbif.org/ipt) with the
+> help of an AI agent: create a resource, fill in its metadata, validate and add data, map it to Darwin Core and publish
+> it, all by asking in plain language. It is not production software: expect rough edges, and try it on a test IPT first.
+
+An MCP server that lets an AI assistant manage an IPT **from resource creation up to publication**, validating data
+before it reaches the IPT.
 
 ## Setup
+
+You need [Node.js 20 or newer](https://nodejs.org) and [git](https://git-scm.com/downloads).
+
+**Quick way (Linux, macOS, Windows)**: the installer checks Node, installs the dependencies, saves your IPT(s) in a small
+config file (without the password) and connects the server to your MCP client.
+
+```bash
+git clone https://github.com/vjrj/ipt-mcp.git
+cd ipt-mcp
+node scripts/install.mjs
+```
+
+It asks for a name (for example `demo`), the IPT URL, your login email and your MCP client (`claude-desktop`,
+`claude-code`, or `print` to just show the configuration). Then set the password in the environment that launches the
+client; the installer tells you the exact variable (for `demo`: `IPT_DEMO_PASSWORD`):
+
+```bash
+export IPT_DEMO_PASSWORD='your-password'        # Linux / macOS (Windows: setx IPT_DEMO_PASSWORD "your-password")
+```
+
+Non-interactive, and how to add more IPTs (run it again with another name):
+
+```bash
+node scripts/install.mjs --name demo --url https://ipt-demo.example.org/ipt --email me@example.org --client claude-desktop
+node scripts/install.mjs --name prod --url https://ipt.example.org/ipt --email me@example.org --client claude-desktop --readonly
+```
+
+### Several IPTs (demo, production, …)
+
+The installer writes `~/.config/ipt-mcp/instances.json` (Windows: `%APPDATA%\ipt-mcp\instances.json`); you can also edit
+it by hand. `${VAR}` takes the value from an environment variable, so no password lives in the file:
+
+```json
+{
+  "default": "demo",
+  "instances": {
+    "demo": { "url": "https://ipt-demo.example.org/ipt", "email": "me@example.org", "password": "${IPT_DEMO_PASSWORD}" },
+    "prod": { "url": "https://ipt.example.org/ipt", "email": "me@example.org", "password": "${IPT_PROD_PASSWORD}", "readonly": true }
+  }
+}
+```
+
+Every tool accepts an `instance` argument, so you can say *"list the datasets on prod"* or *"create the resource on
+demo"*; without it the `default` IPT is used. `ipt_list_instances` shows what is configured (never the credentials).
+`"readonly": true` makes every write operation refuse to run on that IPT.
+
+### Manual configuration
+
+If you prefer to write the MCP client configuration yourself (one IPT, no config file):
 
 ```json
 { "mcpServers": { "ipt": {
@@ -13,19 +66,10 @@ publication**, validating data before it reaches the IPT.
 ```
 
 - Without credentials only the public queries work. `IPT_URL` defaults to `https://ipt.gbif.org`.
-- `IPT_READONLY=1` makes every write operation refuse to run.
+- `IPT_INSTANCES` (a JSON file path, or inline JSON) replaces `IPT_URL`/`IPT_EMAIL`/`IPT_PASSWORD` when you have several IPTs.
+- `IPT_READONLY=1` makes every write operation refuse to run on all IPTs.
 - Publishing, changing visibility, deleting and replacing the EML **do nothing without explicit confirmation**: the
-  assistant explains what will happen and asks you first.
-
-## Security
-
-- The password is never returned to the model: every tool result and error is scrubbed of `IPT_PASSWORD`, URL
-  credentials and any field named password/secret/token/API key.
-- Local files are only read or uploaded when they are real data files (`.txt .tsv .csv .xls .xlsx .zip .gz` for data,
-  `.xml` for EML, `.zip` for a DwC-A) and not inside hidden paths (`~/.ssh`, `~/.config`, `~/.mcp.json`, …).
-  Set `IPT_ALLOWED_DIRS=/data:/home/me/exports` to restrict them to specific directories.
-- Prefer keeping the password out of files the assistant can read (for example a secrets manager exporting
-  `IPT_PASSWORD` in the environment that launches the MCP client).
+  assistant explains what will happen (and on which IPT) and asks you first.
 
 ## What to ask (prompts by use case)
 
@@ -35,6 +79,8 @@ The examples assume a test IPT; replace names and paths. You can give everything
 > Which resources can I manage on the IPT and what state is each one in (published version, visibility, valid metadata)?
 
 > List the public datasets on my IPT that mention "plants" and tell me how many records each has.
+
+> Which IPTs can you use? Now list the public datasets on `prod`.
 
 ### 2. Create a resource from scratch
 > Create an occurrence resource with shortname `flora_valencia_2025`.
@@ -112,5 +158,15 @@ The examples assume a test IPT; replace names and paths. You can give everything
 - Always ask to **"validate first"** when working with new files: the assistant uses `validate_tsv` and will not upload broken data.
 - If something fails, the error includes the IPT's own message; ask the assistant to fix it and retry.
 - For actions that need confirmation, answer "yes, go ahead" once it has described what it is going to do.
+
+## Security
+
+- The password is never returned to the model: every tool result and error is scrubbed of `IPT_PASSWORD`, URL
+  credentials and any field named password/secret/token/API key.
+- Local files are only read or uploaded when they are real data files (`.txt .tsv .csv .xls .xlsx .zip .gz` for data,
+  `.xml` for EML, `.zip` for a DwC-A) and not inside hidden paths (`~/.ssh`, `~/.config`, `~/.mcp.json`, …).
+  Set `IPT_ALLOWED_DIRS=/data:/home/me/exports` to restrict them to specific directories.
+- Prefer keeping passwords out of files the assistant can read: use `${VAR}` in the instances file (the installer does)
+  and export the variables from your secrets manager in the environment that launches the MCP client.
 
 Technical reference, tests and CI: [DEVELOPMENT.md](DEVELOPMENT.md).

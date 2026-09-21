@@ -1,5 +1,14 @@
 # Development
 
+## What this is, and what it should become
+
+This is a proof of concept and it is built the only way the IPT allows today: **it drives the IPT web UI**. The IPT has
+no management API, so the server logs in like a browser, reads each form, posts it back and scrapes the answers. That
+is brittle by nature (a form change in a new IPT release can break it; the nightly CI job exists to notice that) and it
+works around behaviour that an API would make explicit. A proper solution would add a documented management API to
+the IPT itself (resources, metadata, sources, mappings, publication, with token authentication) and make the MCP a thin
+wrapper over it; the code here would then shrink to tool definitions and the data validation.
+
 ## Checks the IPT does not do (found by testing against a real IPT)
 
 - The IPT **publishes resources with invalid metadata or no data** (as a "metadata-only" version), and a failed
@@ -8,6 +17,15 @@
 - Files with embedded newlines or tabs break source analysis; `ipt_add_source` runs `validate_tsv` (streaming) and
   rejects them.
 - Making a resource public only takes effect with the next publication.
+- Making a resource private is the same kind of change (it applies with the next publication). The IPT answers a
+  request for the state the resource already has with an "invalid change" warning on the redirected page;
+  `ipt_set_visibility` reports it instead of pretending it worked. The make-private form must carry `unpublish=Change`.
+- IPT 3.3.0 silently ignores the delimiter and quote fields of an existing file source (it detects them on upload), so
+  `ipt_configure_source` verifies a requested delimiter against the file and fails with a clear message if it was not
+  applied. Header lines, encoding and date format are applied.
+- Re-saving a URL source's settings must not post its (never displayed) delimiter back empty: the client leaves those
+  fields out unless asked to change them.
+- To replace a file source, upload a file with the same file name (the source is named after it).
 - When the session expires, the client logs in again transparently.
 
 ## How it works
@@ -19,13 +37,15 @@ submitting it so nothing depends on hard-coded parameter names.
 ## Tests
 
 ```bash
-npm test                      # 29 unit tests: parsers, fake-IPT flows, validators, MCP protocol over stdio
+npm test                      # unit tests: parsers, fake-IPT flows, validators, config/installer, MCP protocol over stdio
 npm run test:integration      # needs a disposable IPT (below)
 ```
 
 The integration tests run the whole flow (create → metadata → source → mapping → validate → publish → public →
 delete, checklist core, URL source, DwC-A import, EML replace, auto-publish, expired session), both directly and
-through the MCP protocol:
+through the MCP protocol. `test/integration/cov-*.test.ts` follow the README prompts one by one (search, create from a
+DwC-A, every metadata section, encoding/URL/large-file sources, column mapping, publish/metadata-only/public/update
+version/auto-publish/failed publication/delete), so each thing the README promises has a test that proves it:
 
 ```bash
 harness/fetch-war.sh 3.3.0 ipt.war          # official release from repository.gbif.org

@@ -139,7 +139,7 @@ export class IptManager {
   // ---- metadata (any section) ----
 
   /** Load a metadata section form, apply overrides and save it, exactly like the browser would. */
-  async saveMetadataSection(shortname: string, section: string, overrides: Record<string, string | string[]>, mutate?: (f: Field[]) => Field[]): Promise<OpResult> {
+  async saveMetadataSection(shortname: string, section: string, overrides: Record<string, string | string[]>, mutate?: (f: Field[]) => Field[], verify = false): Promise<OpResult> {
     assertShortname(shortname);
     const page = await this.client.getHtml(`/manage/metadata-${q(section)}.do?r=${q(shortname)}`);
     if (page.status !== 200) return { ok: false, errors: [`cannot open metadata section "${section}" (HTTP ${page.status})`], warnings: [] };
@@ -147,7 +147,25 @@ export class IptManager {
     // `mutate` prunes the parsed form first; overrides are then applied on top.
     const base = mutate ? mutate(form.fields) : form.fields;
     const fields = withValues(base, { ...overrides, save: "Save" });
-    return resultOf(await this.client.postForm(`/manage/${form.action}`, fields));
+    const result = resultOf(await this.client.postForm(`/manage/${form.action}`, fields));
+    if (!result.ok || !verify) return result;
+    // The IPT silently drops parameters it does not know: read the section back and check that
+    // every requested value was really stored.
+    const after = await this.getMetadataForm(shortname, section);
+    const norm = (v: string) => v.replace(/\s+/g, " ").trim();
+    const missing = Object.entries(overrides).filter(([name, v]) => {
+      const want = (Array.isArray(v) ? v : [v]).map(norm);
+      const got = after.filter((f) => f.name === name).map((f) => norm(f.value));
+      return !want.every((w) => got.includes(w));
+    });
+    if (missing.length === 0) return result;
+    return {
+      ...result,
+      ok: false,
+      errors: [
+        `the IPT did not store: ${missing.map(([n]) => n).join(", ")} (unknown field name or value rejected). Fields of this section: ${after.map((f) => f.name).join(", ")}`,
+      ],
+    };
   }
 
   async setBasicMetadata(shortname: string, m: BasicMetadata): Promise<OpResult> {
@@ -298,16 +316,44 @@ export class IptManager {
     const page = await this.client.getHtml(`/manage/source.do?r=${q(shortname)}&id=${q(source)}`);
     if (page.status !== 200) return { ok: false, errors: [`source "${source}" not found (HTTP ${page.status})`], warnings: [] };
     const form = parseForm(page.html, "form[action='source.do']");
+    // File sources call these fields fileSource.*, URL sources source.*. The form never shows the stored value, so
+    // posting them back empty would wipe what the IPT detected on upload: only send them when asked to.
+    const sep = form.fields.find((f) => /^(file)?[sS]ource\.fieldsTerminatedByEscaped$/.test(f.name))?.name ?? "fileSource.fieldsTerminatedByEscaped";
+    const quote = form.fields.find((f) => /^(file)?[sS]ource\.fieldsEnclosedByEscaped$/.test(f.name))?.name ?? "fileSource.fieldsEnclosedByEscaped";
     const o: Record<string, string> = {};
-    if (opts.delimiter !== undefined) o["fileSource.fieldsTerminatedByEscaped"] = opts.delimiter;
-    if (opts.enclosedBy !== undefined) o["fileSource.fieldsEnclosedByEscaped"] = opts.enclosedBy;
+    if (opts.delimiter !== undefined) o[sep] = opts.delimiter;
+    if (opts.enclosedBy !== undefined) o[quote] = opts.enclosedBy;
     if (opts.headerLines !== undefined) o["source.ignoreHeaderLines"] = String(opts.headerLines);
     if (opts.encoding !== undefined) o["source.encoding"] = opts.encoding;
     if (opts.dateFormat !== undefined) o["source.dateFormat"] = opts.dateFormat;
     if (opts.multiValueDelimiter !== undefined) o["source.multiValueFieldsDelimitedBy"] = opts.multiValueDelimiter;
     Object.assign(o, opts.fields ?? {});
-    o[opts.analyze === false ? "save" : "analyze"] = opts.analyze === false ? "Save" : "Analyse";
-    return resultOf(await this.client.postForm("/manage/source.do", withValues(form.fields, o)));
+    const wantsDelimiter = opts.delimiter !== undefined;
+    // A delimiter can only be verified through analysis, so it always analyses.
+    o[opts.analyze === false && !wantsDelimiter ? "save" : "analyze"] = opts.analyze === false && !wantsDelimiter ? "Save" : "Analyse";
+    const result = resultOf(await this.client.postForm("/manage/source.do", withValues(form.fields, o).filter((f) => ![sep, quote].includes(f.name) || f.name in o)));
+    if (!result.ok) return result;
+    const warnings = [...result.warnings];
+    if (opts.enclosedBy !== undefined) warnings.push("the quote character cannot be verified: IPT 3.3.0 may ignore it (see ipt_add_source: files are auto-detected on upload)");
+    if (wantsDelimiter) {
+      // IPT 3.3.0 silently drops the delimiter field of this form: check that the file is really read with it.
+      const want = opts.delimiter === "\\t" ? "\t" : opts.delimiter!;
+      const head = (await this.client.getPrefix(`/manage/raw-source.do?r=${q(shortname)}&id=${q(source)}`, 64 * 1024)).toString("utf8");
+      const skip = opts.headerLines ?? 0;
+      const firstLine = head.split(/\r?\n/)[skip] ?? "";
+      const expected = firstLine.split(want).length;
+      const actual = (await this.getStatus(shortname)).sources.find((s) => s.name === source)?.columns;
+      if (actual !== expected) {
+        return {
+          ok: false,
+          errors: [
+            `the IPT ignored the requested delimiter ${JSON.stringify(opts.delimiter)}: it reads ${actual ?? "?"} column(s) but the file has ${expected} with that delimiter. IPT 3.3.0 detects the delimiter when the file is uploaded and does not apply changes made afterwards; re-upload the file using tab, comma, semicolon or pipe separators.`,
+          ],
+          warnings,
+        };
+      }
+    }
+    return { ...result, warnings };
   }
 
   async deleteSource(shortname: string, source: string): Promise<OpResult> {
@@ -512,7 +558,16 @@ export class IptManager {
   async setVisibility(shortname: string, visibility: "public" | "private"): Promise<OpResult> {
     assertShortname(shortname);
     const action = visibility === "public" ? "makePublic" : "makePrivate";
-    return resultOf(await this.client.postForm(`/manage/resource-${action}.do`, [{ name: "r", value: shortname }]));
+    // The UI's own forms: make-private carries unpublish=Change; make-public an (empty = no schedule) makePublicDateTime.
+    const res = await this.client.postForm(`/manage/resource-${action}.do`, [
+      { name: "r", value: shortname },
+      ...(visibility === "private" ? [{ name: "unpublish", value: "Change" }] : [{ name: "makePublicDateTime", value: "" }]),
+    ]);
+    const result = resultOf(res);
+    if (!result.ok || !res.redirectedTo) return result;
+    // The IPT refuses invalid transitions (e.g. asking for the state it already has) with a warning on the page it redirects to.
+    const refusal = pageMessages((await this.client.getHtml(res.redirectedTo)).html).warnings.find((w) => /invalid change/i.test(w));
+    return refusal ? { ok: false, errors: [refusal], warnings: [] } : result;
   }
 
   async deleteResource(shortname: string): Promise<OpResult> {
