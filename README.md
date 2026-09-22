@@ -80,8 +80,23 @@ export IPT_DEMO_PASSWORD='…'
 export IPT_PROD_PASSWORD='…'
 ```
 
-`IPT_INSTANCES` also accepts the JSON inline instead of a file path — set it to this value (as one line; most client
-UIs quote it for you, so you rarely have to escape it by hand):
+`IPT_INSTANCES` also accepts the JSON inline instead of a file path; whitespace does not matter to it, only where you
+set it does. As a shell variable it can span several lines:
+
+```bash
+export IPT_INSTANCES='{
+  "default": "demo",
+  "instances": {
+    "demo": { "url": "https://ipt-demo.example.org/ipt", "email": "me@example.org", "password": "${IPT_DEMO_PASSWORD}" },
+    "prod": { "url": "https://ipt.example.org/ipt", "email": "me@example.org", "password": "${IPT_PROD_PASSWORD}", "readonly": true }
+  }
+}'
+export IPT_DEMO_PASSWORD='…'
+export IPT_PROD_PASSWORD='…'
+```
+
+Inside a client's own JSON config file it has to stay on one line, because a JSON string cannot contain a literal line
+break — set it to this value (most client UIs quote it for you, so you rarely have to escape it by hand):
 
 ```json
 {"default":"demo","instances":{"demo":{"url":"https://ipt-demo.example.org/ipt","email":"me@example.org","password":"${IPT_DEMO_PASSWORD}"},"prod":{"url":"https://ipt.example.org/ipt","email":"me@example.org","password":"${IPT_PROD_PASSWORD}","readonly":true}}}
