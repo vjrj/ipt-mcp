@@ -8,7 +8,7 @@ import { OCC, addAndMap, archiveFile, cleanup, connect, fx, makePublic, newResou
 const datasetOf = async (call: any, sn: string) => (await call("ipt_list_datasets", {})).json.datasets.find((d: any) => d.id === sn);
 
 test("prompts 7 and 8 — check before publishing, publish, metadata only", { skip, timeout: 400_000 }, async (t) => {
-  const { call } = await connect();
+  const { client, call } = await connect();
   const made: string[] = [];
   try {
     await t.test("an incomplete resource is reported section by section and is not published", async () => {
@@ -84,11 +84,12 @@ test("prompts 7 and 8 — check before publishing, publish, metadata only", { sk
     });
   } finally {
     await cleanup(call, ...made);
+    await client.close();
   }
 });
 
 test("prompt 9 — make public, appears in the public list with its record count; and back to private", { skip, timeout: 400_000 }, async () => {
-  const { call } = await connect();
+  const { client, call } = await connect();
   const sn = await newResource(call, "vis");
   try {
     await addAndMap(call, sn, fx("occurrences.txt"));
@@ -123,11 +124,12 @@ test("prompt 9 — make public, appears in the public list with its record count
     assert.match(again.body, /invalid change/i);
   } finally {
     await cleanup(call, sn);
+    await client.close();
   }
 });
 
 test("prompt 10 — update a version: re-upload the same source, re-analyse, mapping still complete, next version", { skip, timeout: 400_000 }, async () => {
-  const { call } = await connect();
+  const { client, call } = await connect();
   const sn = await newResource(call, "upd");
   try {
     await addAndMap(call, sn, fx("occurrences.txt"));
@@ -162,11 +164,12 @@ test("prompt 10 — update a version: re-upload the same source, re-analyse, map
     assert.equal((await archiveFile(sn, "occurrence.txt")).trim().split("\n").length, 8);
   } finally {
     await cleanup(call, sn);
+    await client.close();
   }
 });
 
 test("prompt 11 — automatic publication: every Friday at 12:00", { skip, timeout: 200_000 }, async () => {
-  const { call } = await connect();
+  const { client, call } = await connect();
   const sn = await newResource(call, "auto");
   try {
     const form = await call("ipt_get_settings", { shortname: sn, page: "auto-publish" });
@@ -183,11 +186,12 @@ test("prompt 11 — automatic publication: every Friday at 12:00", { skip, timeo
     assert.match(bad.body, /unknown field/);
   } finally {
     await cleanup(call, sn);
+    await client.close();
   }
 });
 
 test("prompt 12 — a failed publication is diagnosed from its status and log; deleting a resource needs confirmation", { skip, timeout: 300_000 }, async (t) => {
-  const { call } = await connect();
+  const { client, call } = await connect();
   const sn = await newResource(call, "fail");
   try {
     await t.test("duplicate record ids make the publication fail, and the tools say so", async () => {
@@ -213,5 +217,6 @@ test("prompt 12 — a failed publication is diagnosed from its status and log; d
     });
   } finally {
     await cleanup(call, sn);
+    await client.close();
   }
 });
