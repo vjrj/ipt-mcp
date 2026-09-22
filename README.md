@@ -80,19 +80,15 @@ export IPT_DEMO_PASSWORD='…'
 export IPT_PROD_PASSWORD='…'
 ```
 
-`IPT_INSTANCES` also accepts the JSON inline instead of a file path, which is handy when the client config is where you
-keep environment variables too:
+`IPT_INSTANCES` also accepts the JSON inline instead of a file path — set it to this value (as one line; most client
+UIs quote it for you, so you rarely have to escape it by hand):
 
 ```json
-{ "mcpServers": { "ipt": {
-  "command": "node", "args": ["--import", "tsx", "/path/to/ipt-mcp/src/server.ts"],
-  "env": {
-    "IPT_INSTANCES": "{\"default\":\"demo\",\"instances\":{\"demo\":{\"url\":\"https://ipt-demo.example.org/ipt\",\"email\":\"me@example.org\",\"password\":\"${IPT_DEMO_PASSWORD}\"},\"prod\":{\"url\":\"https://ipt.example.org/ipt\",\"email\":\"me@example.org\",\"password\":\"${IPT_PROD_PASSWORD}\",\"readonly\":true}}}",
-    "IPT_DEMO_PASSWORD": "…",
-    "IPT_PROD_PASSWORD": "…"
-  }
-} } }
+{"default":"demo","instances":{"demo":{"url":"https://ipt-demo.example.org/ipt","email":"me@example.org","password":"${IPT_DEMO_PASSWORD}"},"prod":{"url":"https://ipt.example.org/ipt","email":"me@example.org","password":"${IPT_PROD_PASSWORD}","readonly":true}}}
 ```
+
+alongside `IPT_DEMO_PASSWORD` and `IPT_PROD_PASSWORD` in the same `env` block. The file form above is easier to read
+and edit, so prefer it unless your client cannot point `IPT_INSTANCES` at a file.
 
 - Without credentials only the public queries work. `IPT_URL` defaults to `https://ipt.gbif.org`.
 - `IPT_INSTANCES` (a JSON file path, or inline JSON as above) replaces `IPT_URL`/`IPT_EMAIL`/`IPT_PASSWORD` when you have several IPTs.
