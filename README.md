@@ -56,7 +56,7 @@ demo"*; without it the `default` IPT is used. `ipt_list_instances` shows what is
 
 ### Manual configuration
 
-If you prefer to write the MCP client configuration yourself (one IPT, no config file):
+If you prefer to write the MCP client configuration yourself, for one IPT (no config file):
 
 ```json
 { "mcpServers": { "ipt": {
@@ -65,8 +65,37 @@ If you prefer to write the MCP client configuration yourself (one IPT, no config
 } } }
 ```
 
+Or for several IPTs, pointing `IPT_INSTANCES` at the file the installer writes (see
+[Several IPTs](#several-ipts-demo-production-) above) and exporting each password before launching the client:
+
+```json
+{ "mcpServers": { "ipt": {
+  "command": "node", "args": ["--import", "tsx", "/path/to/ipt-mcp/src/server.ts"],
+  "env": { "IPT_INSTANCES": "/home/me/.config/ipt-mcp/instances.json" }
+} } }
+```
+
+```bash
+export IPT_DEMO_PASSWORD='…'
+export IPT_PROD_PASSWORD='…'
+```
+
+`IPT_INSTANCES` also accepts the JSON inline instead of a file path, which is handy when the client config is where you
+keep environment variables too:
+
+```json
+{ "mcpServers": { "ipt": {
+  "command": "node", "args": ["--import", "tsx", "/path/to/ipt-mcp/src/server.ts"],
+  "env": {
+    "IPT_INSTANCES": "{\"default\":\"demo\",\"instances\":{\"demo\":{\"url\":\"https://ipt-demo.example.org/ipt\",\"email\":\"me@example.org\",\"password\":\"${IPT_DEMO_PASSWORD}\"},\"prod\":{\"url\":\"https://ipt.example.org/ipt\",\"email\":\"me@example.org\",\"password\":\"${IPT_PROD_PASSWORD}\",\"readonly\":true}}}",
+    "IPT_DEMO_PASSWORD": "…",
+    "IPT_PROD_PASSWORD": "…"
+  }
+} } }
+```
+
 - Without credentials only the public queries work. `IPT_URL` defaults to `https://ipt.gbif.org`.
-- `IPT_INSTANCES` (a JSON file path, or inline JSON) replaces `IPT_URL`/`IPT_EMAIL`/`IPT_PASSWORD` when you have several IPTs.
+- `IPT_INSTANCES` (a JSON file path, or inline JSON as above) replaces `IPT_URL`/`IPT_EMAIL`/`IPT_PASSWORD` when you have several IPTs.
 - `IPT_READONLY=1` makes every write operation refuse to run on all IPTs.
 - Publishing, changing visibility, deleting and replacing the EML **do nothing without explicit confirmation**: the
   assistant explains what will happen (and on which IPT) and asks you first.
