@@ -26,6 +26,11 @@ wrapper over it; the code here would then shrink to tool definitions and the dat
 - Re-saving a URL source's settings must not post its (never displayed) delimiter back empty: the client leaves those
   fields out unless asked to change them.
 - To replace a file source, upload a file with the same file name (the source is named after it).
+- `peek.do` (the source preview) can briefly lag right after `source.do` reports a source re-analysed: the row/column
+  counts are already current but the preview still shows the previous (or an anonymous "Column #N") header for a
+  moment. Caught once by the nightly job against the newest IPT release; the affected test retries (`until` in
+  `test/integration/helpers.ts`). `ipt_peek_source` itself is a plain, single read — an agent hitting this should
+  just ask again.
 - When the session expires, the client logs in again transparently.
 
 ## How it works
