@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
 import { IptClient, type PageResult } from "./ipt-client.ts";
 import { load, pageMessages, parseForm, withValues, type Field } from "./html.ts";
 import { parseMappingPage, parseOverview, parseReport, type MappingPage, type PublicationReport, type ResourceStatus } from "./overview.ts";
 
 export type ResourceType = "occurrence" | "checklist" | "samplingevent" | "materialentity" | "metadata" | "other";
+
+/** Data package types a resource can be created as (their schema must be installed in the IPT). */
+export type DataPackageType = "camtrap-dp" | "coldp";
 
 export interface OpResult {
   ok: boolean;
@@ -74,14 +78,50 @@ export function resultOf(res: PageResult): OpResult {
   };
 }
 
+/** Parse a local datapackage.json before uploading it, so a broken file fails here with a clear message. */
+export function parseDatapackageJson(text: string): Record<string, unknown> {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`not valid JSON: ${(e as Error).message}`);
+  }
+  if (!isPlainObject(v)) throw new Error("a datapackage.json must be a JSON object");
+  if (!("profile" in v) && !("resources" in v)) throw new Error('not a data package descriptor: it has neither "profile" nor "resources"');
+  return v;
+}
+
+const parseJsonOrText = (s: string): unknown => {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
+};
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Dotted paths of object properties present in `sent` but absent from `kept` (arrays are not descended into). */
+export function droppedKeys(sent: unknown, kept: unknown, prefix = ""): string[] {
+  if (!isPlainObject(sent)) return [];
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(sent)) {
+    const path = prefix + k;
+    if (v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === "") continue;
+    if (!isPlainObject(kept) || !(k in kept)) out.push(path);
+    else out.push(...droppedKeys(v, kept[k], `${path}.`));
+  }
+  return out;
+}
+
 /** High-level operations of the IPT manager UI, expressed as the same form posts a browser would send. */
 export class IptManager {
   constructor(readonly client: IptClient) {}
 
   // ---- resource lifecycle ----
 
-  /** Create an empty resource, or import an existing Darwin Core Archive (.zip) as its starting point. */
-  async createResource(shortname: string, type: ResourceType, dwcaPath?: string): Promise<OpResult> {
+  /** Create an empty resource, or import an existing Darwin Core Archive / data package (.zip) as its starting point. */
+  async createResource(shortname: string, type: ResourceType | DataPackageType, dwcaPath?: string): Promise<OpResult> {
     assertShortname(shortname);
     const res = await this.client.postMultipart(
       "/manage/create.do",
@@ -114,6 +154,70 @@ export class IptManager {
     const m = pageMessages(after.html);
     const errors = m.errors.filter((e) => /eml|xml|invalid|schema|failed/i.test(e));
     return { ...r, ok: errors.length === 0, errors, warnings: [...r.warnings, ...m.warnings] };
+  }
+
+  /**
+   * The metadata (datapackage.json) of a data package resource (Camtrap DP, ColDP, Frictionless). The IPT shows the
+   * draft only for ColDP (embedded in the overview); for the others the only JSON it serves is the last published
+   * version (`/metadata.do`), so `source` says which one this is. Editing the file in the data directory does not
+   * help: the IPT reads it only at startup and overwrites it on every save.
+   */
+  async getDatapackageMetadata(shortname: string): Promise<{ source: "draft" | "published"; metadata: unknown }> {
+    assertShortname(shortname);
+    const page = await this.client.getHtml(`/manage/resource.do?r=${q(shortname)}`);
+    const raw = load(page.html)("#json-raw-data");
+    if (raw.length === 0) throw new Error(`"${shortname}" is not a data package resource: use ipt_get_draft_eml`);
+    const draft = raw.text().trim();
+    if (draft) return { source: "draft", metadata: parseJsonOrText(draft) };
+    const published = await this.client.getHtml(`/metadata.do?r=${q(shortname)}`);
+    if (published.status !== 200) throw new Error(`the IPT does not expose the draft metadata of "${shortname}" and it has no published version yet`);
+    return { source: "published", metadata: parseJsonOrText(published.html) };
+  }
+
+  /**
+   * Replace a data package resource's metadata with a local datapackage.json, like "Replace metadata" on the
+   * overview. The IPT resets name/id/created, keeps the current version and silently drops properties its model
+   * does not know: when the draft can be read back (ColDP) those are reported as `dropped`; otherwise publish and
+   * compare with {@link getDatapackageMetadata}.
+   */
+  async replaceDatapackageMetadata(shortname: string, jsonPath: string, validate = true): Promise<OpResult & { dropped?: string[]; note?: string }> {
+    assertShortname(shortname);
+    const uploaded = parseDatapackageJson(readFileSync(jsonPath, "utf8"));
+    const res = await this.client.postMultipart(
+      "/manage/replace-datapackage-metadata.do",
+      [
+        { name: "r", value: shortname },
+        { name: "validateDatapackageMetadata", value: String(validate) },
+        { name: "datapackageMetadataReplace", value: "Replace" },
+      ],
+      [{ name: "datapackageMetadataFile", path: jsonPath }],
+    );
+    const r = resultOf(res);
+    if (!r.ok) return r;
+    // Success and failure both redirect to the overview; the outcome is in its messages.
+    const after = await this.client.getHtml(res.redirectedTo ?? `/manage/resource.do?r=${q(shortname)}`);
+    const m = pageMessages(after.html);
+    const warnings = [...r.warnings, ...m.warnings];
+    const errors = m.errors.filter((e) => /metadata|json|invalid|validat|failed/i.test(e));
+    if (errors.length > 0) return { ...r, ok: false, errors, warnings };
+    const draft = load(after.html)("#json-raw-data").text().trim();
+    if (!draft) return { ...r, errors: [], warnings, note: "The IPT does not show this resource type's draft metadata, so properties it dropped cannot be listed yet: publish, then compare with ipt_get_datapackage_metadata." };
+    const dropped = droppedKeys(uploaded, parseJsonOrText(draft)).filter((k) => !IptManager.DP_RESET_KEYS.includes(k));
+    return { ...r, errors: [], warnings, ...(dropped.length ? { dropped } : {}) };
+  }
+
+  /** Properties the IPT always resets on a metadata replace (so not worth reporting as dropped). */
+  static readonly DP_RESET_KEYS = ["id", "created", "name", "version"];
+
+  /** Stop a publication in progress (or stuck), restoring the last published version, like "Cancel" on the report page. */
+  async cancelPublication(shortname: string): Promise<OpResult> {
+    assertShortname(shortname);
+    const res = await this.client.getHtml(`/manage/cancel.do?r=${q(shortname)}`);
+    const m = pageMessages(res.html);
+    if (res.status >= 400) return { ok: false, errors: [`IPT answered HTTP ${res.status}`], warnings: m.warnings };
+    // On failure the IPT renders the "locked" page with an error ("…failed to stop publishing…").
+    const errors = m.errors.filter((e) => /stop|cancel|publish|fail/i.test(e));
+    return { ok: errors.length === 0, errors, warnings: m.warnings };
   }
 
   // ---- publication settings ----

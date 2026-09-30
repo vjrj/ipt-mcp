@@ -187,6 +187,21 @@ The examples assume a test IPT; replace names and paths. You can give everything
 
 > Delete the source `test` and the resource `draft_test`.
 
+> `camaras_2024` has been "publishing" for hours and is locked: cancel that publication.
+
+### 13. Camtrap DP / data package metadata
+The IPT reads `datapackage.json` from its data directory **only at startup**, and rewrites it on every save, so editing
+that file by hand while the IPT runs does nothing (and restarting is not needed). Edit it through the MCP instead:
+> Give me the datapackage.json of `camaras_2024` and save it to `/data/camaras_2024.json`.
+
+> I edited `/data/camaras_2024.json`: replace the metadata of `camaras_2024` with it, tell me if the IPT dropped any
+> property, and publish a new version so GBIF re-indexes it.
+
+For Camtrap DP the IPT only serves the **last published** datapackage.json (the draft is not exposed as JSON): replacing
+with an edit of it **discards changes made in the IPT's metadata forms since that publication**, so publish those first
+(or redo them in the JSON), and publish again afterwards to see the result. The IPT resets `name`, `id` and `created`, keeps the version and silently
+drops properties it does not model (listed under `dropped` when the draft can be read back, as with ColDP).
+
 ### The whole flow in one message
 > Using `/data/occurrences.txt`, create an occurrence resource `flora_valencia_2025`. Title "…", description "…",
 > licence CC-BY, contact and creator Ana Perez (Botanical Garden, ana@example.org). Validate and upload the file, map it

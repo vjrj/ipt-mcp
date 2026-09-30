@@ -1,12 +1,13 @@
 import { realpathSync, statSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
 
-export type UploadKind = "data" | "eml" | "dwca";
+export type UploadKind = "data" | "eml" | "dwca" | "json";
 
 const EXT: Record<UploadKind, string[]> = {
   data: [".txt", ".tsv", ".csv", ".xls", ".xlsx", ".zip", ".gz"],
   eml: [".xml", ".eml"],
   dwca: [".zip"],
+  json: [".json"],
 };
 
 /**

@@ -48,6 +48,8 @@ test("assertReadablePath: only real data files outside hidden paths", () => {
   assert.throws(() => assertReadablePath(join(dir, "notes.json"), "data"), /unsupported file type/);
   assert.throws(() => assertReadablePath(good, "eml"), /unsupported file type/);
   assert.throws(() => assertReadablePath(good, "dwca"), /unsupported file type/);
+  assert.ok(assertReadablePath(join(dir, "notes.json"), "json").endsWith("notes.json"), "a datapackage.json upload");
+  assert.throws(() => assertReadablePath(good, "json"), /unsupported file type/);
 
   // A visible symlink to a hidden file is caught through the real path.
   symlinkSync(join(hidden, "id.txt"), join(dir, "innocent.txt"));

@@ -270,6 +270,13 @@ export function registerTools(server: McpServer, registry: Registry): void {
 
   read("ipt_get_draft_eml", "The draft EML the IPT currently holds for the resource.", { shortname }, async ({ shortname }) => text(await (await session.manager()).getDraftEml(shortname)));
 
+  read(
+    "ipt_get_datapackage_metadata",
+    "The datapackage.json of a data package resource (Camtrap DP, ColDP, Frictionless), to edit it and send it back with ipt_replace_datapackage_metadata. `source` says whether it is the draft (ColDP) or the last published version (Camtrap DP: the IPT does not expose the draft as JSON). Editing the file in the IPT data directory does not work while the IPT runs (it is read only at startup and overwritten on every save).",
+    { shortname },
+    async ({ shortname }) => text(await (await session.manager()).getDatapackageMetadata(shortname)),
+  );
+
   read("ipt_get_settings", "Publication options form (page: auto-publish | publication-settings).", { shortname, page: z.enum(IptManager.SETTINGS_PAGES) }, async ({ shortname, page }) =>
     text(await (await session.manager()).getSettings(shortname, page)),
   );
@@ -278,8 +285,8 @@ export function registerTools(server: McpServer, registry: Registry): void {
 
   write(
     "ipt_create_resource",
-    "Create a resource, empty or importing a Darwin Core Archive (.zip) from a local path.",
-    { shortname, type: z.enum(RESOURCE_TYPES), dwcaPath: z.string().optional().describe("Local .zip DwC-A to import") },
+    "Create a resource, empty or importing a Darwin Core Archive or data package (.zip, e.g. a published Camtrap DP) from a local path. camtrap-dp / coldp need that data package schema installed in the IPT.",
+    { shortname, type: z.enum([...RESOURCE_TYPES, "camtrap-dp", "coldp"]), dwcaPath: z.string().optional().describe("Local .zip DwC-A or data package to import") },
     async ({ shortname, type, dwcaPath }, m) => opText(await m.createResource(shortname, type, dwcaPath ? assertReadablePath(dwcaPath, "dwca") : undefined)),
   );
 
@@ -357,6 +364,21 @@ export function registerTools(server: McpServer, registry: Registry): void {
     "Replace the resource's metadata with an EML file from a local path.",
     { shortname, path: z.string(), validate: z.boolean().default(true), confirm },
     async ({ shortname, path, validate, confirm }, m) => (confirm ? opText(await m.replaceEml(shortname, assertReadablePath(path, "eml"), validate)) : needConfirm("This overwrites the resource's current metadata.")),
+  );
+
+  write(
+    "ipt_replace_datapackage_metadata",
+    "Replace a data package resource's (Camtrap DP, ColDP, Frictionless) metadata with a local datapackage.json, without restarting the IPT. WARNING for Camtrap DP: ipt_get_datapackage_metadata returns the last PUBLISHED version, so replacing with an edit of it discards changes made in the IPT's metadata forms since that publication. The IPT resets name/id/created, keeps the version, and drops properties it does not model (listed as `dropped` when the draft can be read back). Publish afterwards so GBIF picks the change up.",
+    { shortname, path: z.string(), validate: z.boolean().default(true), confirm },
+    async ({ shortname, path, validate, confirm }, m) =>
+      confirm ? opText(await m.replaceDatapackageMetadata(shortname, assertReadablePath(path, "json"), validate)) : needConfirm("This overwrites the resource's current data package metadata."),
+  );
+
+  write(
+    "ipt_cancel_publication",
+    "Stop a publication that is running or stuck (the resource shows as locked / 'publication in progress') and restore the last published version. The IPT-level alternative to restarting it for a stuck resource.",
+    { shortname, confirm },
+    async ({ shortname, confirm }, m) => (confirm ? opText(await m.cancelPublication(shortname)) : needConfirm(`This cancels the running publication of "${shortname}" and restores its last published version.`)),
   );
 
   write(

@@ -31,6 +31,13 @@ wrapper over it; the code here would then shrink to tool definitions and the dat
   moment. Caught once by the nightly job against the newest IPT release; the affected test retries (`until` in
   `test/integration/helpers.ts`). `ipt_peek_source` itself is a plain, single read — an agent hitting this should
   just ask again.
+- The IPT has no web action to reload the data directory: `resources/<r>/datapackage.json` (and `resource.xml`) are
+  read only at startup, and every save rewrites them from memory, so hand edits on disk are lost while it runs.
+  `ipt_get_datapackage_metadata` reads the draft where the IPT shows it (`#json-raw-data` on the overview, ColDP only)
+  and otherwise the last published version (`/metadata.do`); and
+  `ipt_replace_datapackage_metadata` posts to `replace-datapackage-metadata.do`, which resets `name`/`id`/`created`,
+  keeps the version and drops unknown properties; when the draft is readable the tool lists the dropped paths.
+  `ipt_cancel_publication` (`cancel.do`) unlocks a stuck publication without a restart.
 - When the session expires, the client logs in again transparently.
 
 ## How it works
@@ -65,4 +72,5 @@ newest release (nightly), which flags form changes that would break the driver.
 ## Not covered yet
 
 GBIF registration, DOIs, user and organisation administration, vocabulary value translations, data-package (Camtrap DP)
-resources, and SQL sources against a live database (implemented but not integration-tested).
+resources beyond importing a package and reading/replacing its metadata, and SQL sources against a live database
+(implemented but not integration-tested).
