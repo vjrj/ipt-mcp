@@ -28,8 +28,8 @@ wrapper over it; the code here would then shrink to tool definitions and the dat
 - To replace a file source, upload a file with the same file name (the source is named after it).
 - `peek.do` (the source preview) can briefly lag right after `source.do` reports a source re-analysed: the row/column
   counts are already current but the preview still shows the previous (or an anonymous "Column #N") header for a
-  moment. Caught once by the nightly job against the newest IPT release; the affected test retries (`until` in
-  `test/integration/helpers.ts`). `ipt_peek_source` itself is a plain, single read — an agent hitting this should
+  moment. Caught twice by the nightly job against the newest IPT release (the lag can exceed a few seconds on a slow
+  runner); the affected test retries for up to ~10 s (`until` in `test/integration/helpers.ts`). `ipt_peek_source` itself is a plain, single read — an agent hitting this should
   just ask again.
 - The IPT has no web action to reload the data directory: `resources/<r>/datapackage.json` (and `resource.xml`) are
   read only at startup, and every save rewrites them from memory, so hand edits on disk are lost while it runs.

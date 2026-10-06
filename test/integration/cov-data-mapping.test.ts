@@ -107,10 +107,12 @@ test("prompt 5 — add the data, with validation", { skip, timeout: 400_000 }, a
         const remote = st.json.sources.find((s: any) => s.name === "remote");
         assert.deepEqual([remote.rows, remote.columns], [5, 7]);
         // peek.do can briefly lag right after an analyse even though the row/column counts above are already
-        // current (see DEVELOPMENT.md); a handful of quick retries is enough for it to catch up.
+        // current (see DEVELOPMENT.md); on a slow CI runner it can take several seconds to catch up.
         const peek = await until(
           () => call("ipt_peek_source", { shortname: sn, source: "remote" }),
           (r) => r.json?.columns?.[0] === "occurrenceID",
+          20,
+          500,
         );
         assert.equal(peek.json.columns[0], "occurrenceID");
         assert.equal(peek.json.rows.length, 5, "reconfiguring a URL source must not lose its delimiter");
