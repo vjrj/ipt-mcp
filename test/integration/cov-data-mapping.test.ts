@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { createWriteStream, readFileSync } from "node:fs";
 import { once } from "node:events";
 import { join } from "node:path";
-import { OCC, TAXON, addAndMap, archiveFile, cleanup, connect, fx, makePublic, newResource, publishAndWait, skip, tmp, until, write } from "./helpers.ts";
+import { OCC, TAXON, addAndMap, archiveFile, cleanup, connect, fx, makePublic, newResource, publishAndWait, skip, tmp, write } from "./helpers.ts";
 
 // README prompts 5 and 6: add the data (with validation) and map it to Darwin Core.
 
@@ -102,18 +102,13 @@ test("prompt 5 — add the data, with validation", { skip, timeout: 400_000 }, a
         const add = await call("ipt_add_source", { shortname: sn, type: "url", url: `http://${HOST}:${port}/data.txt`, name: "remote" });
         assert.equal(add.isError, false, add.body);
         assert.equal(add.json.source, "remote");
-        await call("ipt_configure_source", { shortname: sn, source: "remote" });
+        // The IPT detects a URL source's header line and quote character after the add returns, so on a loaded
+        // runner a bare re-analyse reposts the form's stale defaults (0 header lines): say what the file has.
+        await call("ipt_configure_source", { shortname: sn, source: "remote", headerLines: 1 });
         const st = await call("ipt_get_status", { shortname: sn });
         const remote = st.json.sources.find((s: any) => s.name === "remote");
         assert.deepEqual([remote.rows, remote.columns], [5, 7]);
-        // peek.do can briefly lag right after an analyse even though the row/column counts above are already
-        // current (see DEVELOPMENT.md); on a slow CI runner it can take several seconds to catch up.
-        const peek = await until(
-          () => call("ipt_peek_source", { shortname: sn, source: "remote" }),
-          (r) => r.json?.columns?.[0] === "occurrenceID",
-          20,
-          500,
-        );
+        const peek = await call("ipt_peek_source", { shortname: sn, source: "remote" });
         assert.equal(peek.json.columns[0], "occurrenceID");
         assert.equal(peek.json.rows.length, 5, "reconfiguring a URL source must not lose its delimiter");
         assert.deepEqual(peek.json.rows[0].slice(0, 2), ["occ1", "Quercus ilex"]);

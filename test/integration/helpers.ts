@@ -102,20 +102,6 @@ export async function archiveFile(sn: string, name: string): Promise<string> {
   return execFileSync("unzip", ["-p", zip, name], { encoding: "utf8" });
 }
 
-/**
- * Retry `fn` until it returns a truthy value or the attempts run out (250ms apart by default).
- * Use it for the IPT's own eventual consistency, e.g. peek.do briefly lagging just after an analyse
- * (see DEVELOPMENT.md); never to paper over a real assertion failure — the last result is returned as is.
- */
-export async function until<T>(fn: () => Promise<T>, ok: (v: T) => boolean, attempts = 5, delayMs = 250): Promise<T> {
-  let v = await fn();
-  for (let i = 1; i < attempts && !ok(v); i++) {
-    await new Promise((r) => setTimeout(r, delayMs));
-    v = await fn();
-  }
-  return v;
-}
-
 export const draftEml = async (call: Call, sn: string) => (await call("ipt_get_draft_eml", { shortname: sn })).body;
 export const cleanup = async (call: Call, ...sns: string[]) => {
   for (const sn of sns) await call("ipt_delete_resource", { shortname: sn, confirm: true }).catch(() => undefined);

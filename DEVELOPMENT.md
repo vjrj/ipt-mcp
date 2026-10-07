@@ -26,11 +26,11 @@ wrapper over it; the code here would then shrink to tool definitions and the dat
 - Re-saving a URL source's settings must not post its (never displayed) delimiter back empty: the client leaves those
   fields out unless asked to change them.
 - To replace a file source, upload a file with the same file name (the source is named after it).
-- `peek.do` (the source preview) can briefly lag right after `source.do` reports a source re-analysed: the row/column
-  counts are already current but the preview still shows the previous (or an anonymous "Column #N") header for a
-  moment. Caught twice by the nightly job against the newest IPT release (the lag can exceed a few seconds on a slow
-  runner); the affected test retries for up to ~10 s (`until` in `test/integration/helpers.ts`). `ipt_peek_source` itself is a plain, single read — an agent hitting this should
-  just ask again.
+- The IPT detects a URL source's header line and quote character *after* `addsource.do` returns (slowly on a loaded
+  runner). Until then `source.do` shows `ignoreHeaderLines=0`, and a bare `ipt_configure_source` re-analyse reposts
+  those stale values for good: `peek.do` then shows anonymous "Column #N" headers and the header as a data row (IPT
+  3.3.6 nightly flake, reproducible with a CPU hog next to the IPT). Say what the file has (`headerLines`) when you
+  configure a URL source right after adding it; the integration test does.
 - The IPT has no web action to reload the data directory: `resources/<r>/datapackage.json` (and `resource.xml`) are
   read only at startup, and every save rewrites them from memory, so hand edits on disk are lost while it runs.
   `ipt_get_datapackage_metadata` reads the draft where the IPT shows it (`#json-raw-data` on the overview, ColDP only)
