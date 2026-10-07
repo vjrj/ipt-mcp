@@ -1,9 +1,18 @@
 {
   "rules": [
     {
-      "match": ["src/paths.ts"],
+      "match": [
+        "src/paths.ts"
+      ],
       "run": "node --import tsx --test test/security.test.ts",
       "why": "test/security.test.ts 'assertReadablePath: only real data files outside hidden paths' covers every UploadKind (data/eml/dwca/json), hidden paths, symlinks and missing files"
+    },
+    {
+      "match": [
+        "test/integration/helpers.ts"
+      ],
+      "run": "npx tsc --noEmit -p tsconfig.json",
+      "why": "helpers.ts is shared test scaffolding, not product code: it is exercised by every integration test (needs a live IPT, run in CI); locally the typecheck proves no test still imports a removed helper"
     }
   ]
 }
