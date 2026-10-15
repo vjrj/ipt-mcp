@@ -20,7 +20,8 @@ cd ipt-mcp
 node scripts/install.mjs
 ```
 
-It asks for a name (for example `demo`), the IPT URL, your login email and your MCP client (`claude-desktop`,
+It asks for a name (for example `demo`), the IPT URL, your login email (any manager account works, see
+[IPT account roles](#ipt-account-roles)) and your MCP client (`claude-desktop`,
 `claude-code`, or `print` to just show the configuration). Then set the password in the environment that launches the
 client; the installer tells you the exact variable (for `demo`: `IPT_DEMO_PASSWORD`):
 
@@ -110,6 +111,24 @@ and edit, so prefer it unless your client cannot point `IPT_INSTANCES` at a file
 - `IPT_READONLY=1` makes every write operation refuse to run on all IPTs.
 - Publishing, changing visibility, deleting and replacing the EML **do nothing without explicit confirmation**: the
   assistant explains what will happen (and on which IPT) and asks you first.
+
+### IPT account roles
+
+The server logs in with your IPT account exactly like the web interface, so the assistant can do what that account can
+do in the IPT and nothing more. It only uses the resource manager pages, never the IPT administration pages, so you
+don't need an admin account.
+
+| IPT role | What the assistant can do |
+|---|---|
+| No credentials | Public queries only: list datasets, read published metadata, check the IPT is up. |
+| User | The same public queries: IPT users have no access to resource management. |
+| Manager (with or without registration rights) | The whole flow (create, metadata, sources, mapping, publish, visibility, delete) on the resources the account created or was added to as a manager. |
+| Admin | The same as a manager, on every resource of the IPT. |
+
+- Registration rights make no difference yet: GBIF registration and DOIs are not covered (see
+  [Not covered yet](DEVELOPMENT.md#not-covered-yet)).
+- To restrict any account further, use `"readonly": true` for that IPT or `IPT_READONLY=1`.
+- The integration tests run with an admin account; manager accounts have not been tested yet.
 
 ## What to ask (prompts by use case)
 
