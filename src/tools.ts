@@ -355,7 +355,7 @@ export function registerTools(server: McpServer, registry: Registry): void {
   write(
     "ipt_set_metadata_fields",
     "Save any metadata section by raw field names (get them with ipt_get_metadata_form). Repeatable items use indexed names such as eml.citation.citation or eml.physicalData[0].name.",
-    { shortname, section: z.string(), fields: z.record(z.string()) },
+    { shortname, section: z.string(), fields: z.record(z.string(), z.string()) },
     async ({ shortname, section, fields }, m) => opText(await m.saveMetadataSection(shortname, section, fields, undefined, true)),
   );
 
@@ -426,7 +426,7 @@ export function registerTools(server: McpServer, registry: Registry): void {
       dateFormat: z.string().optional(),
       multiValueDelimiter: z.string().optional(),
       analyze: z.boolean().default(true),
-      fields: z.record(z.string()).optional(),
+      fields: z.record(z.string(), z.string()).optional(),
     },
     async ({ shortname, source, ...opts }, m) => opText(await m.configureSource(shortname, source, Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined)))),
   );
@@ -449,8 +449,8 @@ export function registerTools(server: McpServer, registry: Registry): void {
       shortname,
       rowType: z.string(),
       mid: z.number().int().default(0),
-      columns: z.record(z.string().nullable()).optional(),
-      defaults: z.record(z.string()).optional(),
+      columns: z.record(z.string(), z.string().nullable()).optional(),
+      defaults: z.record(z.string(), z.string()).optional(),
       idColumn: z.string().optional(),
     },
     async ({ shortname, rowType, mid, columns, defaults, idColumn }, m) =>
@@ -464,7 +464,7 @@ export function registerTools(server: McpServer, registry: Registry): void {
   write(
     "ipt_set_settings",
     "Save publication options (page auto-publish: updateFrequency, updateFrequencyDayOfWeek, updateFrequencyDay, updateFrequencyTime, skipUnchanged, …).",
-    { shortname, page: z.enum(IptManager.SETTINGS_PAGES), values: z.record(z.string()) },
+    { shortname, page: z.enum(IptManager.SETTINGS_PAGES), values: z.record(z.string(), z.string()) },
     async ({ shortname, page, values }, m) => opText(await m.setSettings(shortname, page, values)),
   );
 
