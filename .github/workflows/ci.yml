@@ -58,7 +58,7 @@ jobs:
             V=$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 15 https://repository.gbif.org/repository/releases/org/gbif/ipt/maven-metadata.xml | sed -n 's|.*<release>\(.*\)</release>.*|\1|p')
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ipt-mcp
           key: ipt-war-${{ steps.v.outputs.version }}
