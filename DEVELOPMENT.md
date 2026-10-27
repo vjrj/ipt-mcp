@@ -66,7 +66,7 @@ harness/setup-ipt.sh                        # installation wizard in TEST mode (
 IPT_TEST_URL=http://localhost:18080/ipt npm run test:integration
 ```
 
-CI (`.github/workflows/ci.yml`) runs the unit tests on Node 20/22 and the integration suite against IPT 3.3.0 and the
+CI (`.github/workflows/ci.yml`) runs the unit tests on Node 22/24 and the integration suite against IPT 3.3.0 and the
 newest release (nightly), which flags form changes that would break the driver.
 
 ## Not covered yet

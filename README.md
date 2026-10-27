@@ -9,7 +9,7 @@ before it reaches the IPT.
 
 ## Setup
 
-You need [Node.js 20 or newer](https://nodejs.org) and [git](https://git-scm.com/downloads).
+You need [Node.js 22 or newer](https://nodejs.org) and [git](https://git-scm.com/downloads).
 
 **Quick way (Linux, macOS, Windows)**: the installer checks Node, installs the dependencies, saves your IPT(s) in a small
 config file (without the password) and connects the server to your MCP client.
